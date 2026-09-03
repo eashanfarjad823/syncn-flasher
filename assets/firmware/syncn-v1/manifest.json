@@ -1,0 +1,18 @@
+{
+  "id": "syncn-v1",
+  "name": "SyncN Firmware (test build)",
+  "version": "1.0.0-test",
+  "chip": "esp32s3",
+  "flashSize": 8388608,
+  "flashMode": "dio",
+  "flashFreq": "80MHz",
+  "buildDate": "2024-03-05T12:12:53",
+  "idfVersion": "v4.4.7",
+  "source": "arduino-lib-builder",
+  "parts": [
+    { "file": "bootloader.bin", "offset": 0,       "label": "bootloader" },
+    { "file": "partitions.bin", "offset": 32768,   "label": "partition-table" },
+    { "file": "boot_app0.bin",  "offset": 57344,   "label": "otadata" },
+    { "file": "firmware.bin",   "offset": 65536,   "label": "app (ota_0)" }
+  ]
+}
