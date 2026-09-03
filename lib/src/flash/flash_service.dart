@@ -431,8 +431,11 @@ class FlashService {
           );
         }
 
-        // Close this region but keep the ROM loader running for the next one.
-        await loader.flashEnd(reboot: false);
+        // Deliberately no FLASH_END here. The ROM allows a fresh FLASH_BEGIN to
+        // re-arm the state machine for the next region, and that is the
+        // sequence esptool itself uses: begin/blocks per file, with a single
+        // FLASH_END once every region has been written. Ending each region
+        // individually risks the ROM rejecting the command mid-transfer.
 
         if (options.verifyMd5) {
           _emit(
@@ -465,11 +468,16 @@ class FlashService {
         }
       }
 
+      // The single FLASH_END for the whole job. Every region's blocks have now
+      // been sent, so the ROM will accept it.
       if (options.rebootAfter) {
         _emit(FlashStage.rebooting, 'Restarting the board...',
             overall: 1, elapsed: stopwatch.elapsed);
         await loader.flashEnd(reboot: true);
         await transport.hardReset();
+      } else {
+        // Still close the session, or the ROM is left mid-transfer.
+        await loader.flashEnd(reboot: false);
       }
 
       stopwatch.stop();
@@ -505,8 +513,15 @@ class FlashService {
   /// The dedicated ERASE_FLASH command is stub-only, so the ROM equivalent is
   /// to declare a whole-chip erase and then close the session without writing.
   Future<void> _eraseWholeChip(EspLoader loader, int flashSize) async {
+    // FLASH_BEGIN performs the erase itself, so declaring the whole chip is
+    // enough to blank it.
+    //
+    // Crucially there is NO FLASH_END here. FLASH_BEGIN also tells the ROM to
+    // expect that many blocks, and ending the session without sending any is
+    // rejected with "could not act on the message". The caller goes straight
+    // on to the first region's FLASH_BEGIN, which re-arms the state machine
+    // and discards this pending transfer.
     await loader.flashBegin(offset: 0, size: flashSize);
-    await loader.flashEnd(reboot: false);
   }
 
   /// Picks the fastest link speed the cable and phone can actually sustain.

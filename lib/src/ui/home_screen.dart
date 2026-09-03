@@ -120,6 +120,14 @@ class _HomeScreenState extends State<HomeScreen> {
             'slower, more tolerant speed.',
       );
     }
+    if (lower.contains('could not act')) {
+      return (
+        message: 'The board rejected a command part-way through the sequence.',
+        advice: 'Disconnect, reconnect, and flash again. If this happened '
+            'during a full chip erase, the flash may now be blank — reflash '
+            'with "Only what is being written" to restore the board.',
+      );
+    }
     if (lower.contains('unbootable') || lower.contains('targets')) {
       return (
         message: msg,
