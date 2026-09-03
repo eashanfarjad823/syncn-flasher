@@ -468,16 +468,51 @@ class FlashService {
         }
       }
 
-      // The single FLASH_END for the whole job. Every region's blocks have now
-      // been sent, so the ROM will accept it.
+      // Final integrity pass: re-checksum EVERY region now that all writes are
+      // finished.
+      //
+      // Per-region verification runs before the following regions are written,
+      // so on its own it cannot prove that a later FLASH_BEGIN did not erase an
+      // earlier region. Re-reading every checksum at the end closes that gap and
+      // turns "each region was right when written" into "the whole flash is
+      // right now".
+      if (options.verifyMd5 && bundle.parts.length > 1) {
+        _emit(
+          FlashStage.verifying,
+          'Final check of all regions...',
+          overall: 1,
+          bytesWritten: written,
+          totalBytes: total,
+          elapsed: stopwatch.elapsed,
+        );
+        for (var i = 0; i < bundle.parts.length; i++) {
+          final part = bundle.parts[i];
+          final boardMd5 =
+              await loader.flashMd5(offset: part.offset, size: part.size);
+          final ok = boardMd5.toLowerCase() == part.md5Hex.toLowerCase();
+          report.parts[i].boardMd5 = boardMd5;
+          report.parts[i].verified = ok;
+          if (!ok) {
+            throw EspException(
+              '${part.label} at ${part.offsetLabel} no longer matches after the '
+              'later regions were written. A write overlapped it.',
+            );
+          }
+        }
+      }
+
+      // Close the session WITHOUT asking the ROM to reboot.
+      //
+      // FLASH_END's reboot flag is rejected by the ESP32-S3 ROM (status 0x06),
+      // which used to leave a spurious failure line in the log of an otherwise
+      // perfect flash. esptool does the same thing: finish the session, then
+      // restart the board over DTR/RTS.
+      await loader.flashEnd(reboot: false);
+
       if (options.rebootAfter) {
         _emit(FlashStage.rebooting, 'Restarting the board...',
             overall: 1, elapsed: stopwatch.elapsed);
-        await loader.flashEnd(reboot: true);
         await transport.hardReset();
-      } else {
-        // Still close the session, or the ROM is left mid-transfer.
-        await loader.flashEnd(reboot: false);
       }
 
       stopwatch.stop();
