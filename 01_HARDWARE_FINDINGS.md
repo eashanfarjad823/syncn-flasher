@@ -65,9 +65,10 @@ Two consequences:
   only the sectors being written, so `nvs` survives an update and the board
   keeps its configuration. A full-chip erase is opt-in and clearly labelled as
   requiring re-provisioning.
-- **The layout is OTA-capable** (`ota_0` + `ota_1` + `otadata`). A Wi-Fi update
-  path is therefore viable on this firmware, which is why the transport layer
-  is written behind an interface rather than hard-wired to USB.
+- **The app is written to `ota_0`, not `factory`.** `boot_app0.bin` sets
+  `otadata` to point at the first OTA slot, so the bootloader runs `ota_0`.
+  `ota_1` stays empty — the flasher writes over USB only and never uses the
+  second slot.
 
 ## 4. Application provenance ✅
 

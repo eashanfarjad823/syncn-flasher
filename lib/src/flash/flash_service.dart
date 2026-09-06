@@ -501,13 +501,14 @@ class FlashService {
         }
       }
 
-      // Close the session WITHOUT asking the ROM to reboot.
+      // Close the session the way esptool closes a ROM one: an empty
+      // FLASH_BEGIN to leave nothing outstanding, then FLASH_END. Skipping the
+      // empty begin is what made the ROM answer 0x06 here.
       //
-      // FLASH_END's reboot flag is rejected by the ESP32-S3 ROM (status 0x06),
-      // which used to leave a spurious failure line in the log of an otherwise
-      // perfect flash. esptool does the same thing: finish the session, then
-      // restart the board over DTR/RTS.
-      await loader.flashEnd(reboot: false);
+      // The reboot flag is deliberately not used — esptool restarts the board
+      // over DTR/RTS instead, which is what hardReset below does.
+      await loader.flashBeginEmpty();
+      await loader.flashEnd(reboot: false, tolerant: true);
 
       if (options.rebootAfter) {
         _emit(FlashStage.rebooting, 'Restarting the board...',

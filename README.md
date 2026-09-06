@@ -162,9 +162,11 @@ reused or ported without dragging the UI along.
   would also raise the write block size from 1 KB to 16 KB.
 - **No foreground service yet.** A wakelock keeps the screen on during a flash;
   leaving the app mid-write will still interrupt it.
-- **Wi-Fi OTA is not implemented.** The partition table supports it and the
-  code is structured for it, but the firmware's update endpoint is not yet
-  known.
+- **USB-C only, by design.** There is no Wi-Fi or over-the-air update path. The
+  app manifest requests no network permission, so a release build has no
+  network access whatsoever and works entirely offline. (Debug and profile
+  builds do carry `INTERNET` — Flutter's own variant manifests add it for hot
+  reload and DevTools, not for anything this app does.)
 - **Flash size is read from the image header**, not interrogated from the SPI
   flash chip.
 - **Android only.** iOS cannot reach USB-serial devices without MFi

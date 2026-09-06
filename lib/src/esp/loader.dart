@@ -356,7 +356,11 @@ class EspLoader {
 
   /// Finishes the flash session. [reboot] false leaves the board in the
   /// bootloader so further regions can be written.
-  Future<void> flashEnd({bool reboot = false}) async {
+  ///
+  /// Set [tolerant] once every region has been written and checksummed: a
+  /// refusal at that point cannot invalidate flash that already verified, so
+  /// it is recorded rather than allowed to fail an otherwise good job.
+  Future<void> flashEnd({bool reboot = false, bool tolerant = false}) async {
     final d = ByteData(4)..setUint32(0, reboot ? 0 : 1, Endian.little);
     try {
       await checkCommand(
@@ -367,10 +371,22 @@ class EspLoader {
       );
     } on EspException catch (e) {
       // Rebooting boards frequently stop answering mid-reply; that is success.
-      if (!reboot) rethrow;
-      _log('FLASH_END (reboot) unanswered, treating as success: ${e.message}');
+      if (!reboot && !tolerant) rethrow;
+      _log('FLASH_END not acknowledged, continuing: ${e.message}');
+      return;
     }
     _log('FLASH_END reboot=$reboot');
+  }
+
+  /// Arms the ROM with an empty transfer.
+  ///
+  /// esptool does exactly this immediately before FLASH_END on non-stub
+  /// targets (its `soft_reset` for the ROM loader): the zero-length begin
+  /// leaves nothing outstanding, which is what makes the following FLASH_END
+  /// valid. Sent cold — particularly after a run of MD5 commands — the
+  /// ESP32-S3 ROM rejects FLASH_END with status 0x06.
+  Future<void> flashBeginEmpty() async {
+    await flashBegin(offset: 0, size: 0);
   }
 
   /// Asks the board for the MD5 of a flash region, so a write can be verified
