@@ -151,10 +151,25 @@ class FirmwareBundle {
       final p = raw as Map<String, dynamic>;
       final file = p['file'] as String;
       final data = await rootBundle.load('$dir/$file');
+      final label = (p['label'] as String?) ?? labelFor(file);
+      var bytes = data.buffer.asUint8List();
+
+      // Correct the bootloader's flash parameters, exactly as esptool does.
+      // A bootloader built for QIO written unchanged onto a DIO board cannot
+      // read flash and watchdog-resets in a loop.
+      if (label.contains('bootloader')) {
+        bytes = EspImageHeader.applyFlashParams(
+          bytes,
+          mode: manifest['flashMode'] as String?,
+          sizeBytes: manifest['flashSize'] as int?,
+          freq: manifest['flashFreq'] as String?,
+        );
+      }
+
       parts.add(FlashPart(
-        label: (p['label'] as String?) ?? labelFor(file),
+        label: label,
         offset: p['offset'] as int,
-        bytes: data.buffer.asUint8List(),
+        bytes: bytes,
         fileName: file,
       ));
     }
@@ -200,14 +215,34 @@ class FirmwareBundle {
       }
     }
 
-    final parts = loaded.entries
-        .map((e) => FlashPart(
-              label: labelFor(e.key),
-              offset: defaultOffsetFor(e.key, chip),
-              bytes: e.value,
-              fileName: e.key,
-            ))
-        .toList()
+    // The application image carries the flash parameters the board actually
+    // needs; the bootloader is then corrected to match, as esptool does.
+    EspImageHeader? appHeader;
+    for (final e in loaded.entries) {
+      if (labelFor(e.key) == 'application') {
+        appHeader = EspImageHeader.parse(e.value);
+        break;
+      }
+    }
+
+    final parts = loaded.entries.map((e) {
+      final label = labelFor(e.key);
+      var bytes = e.value;
+      if (label.contains('bootloader') && appHeader != null) {
+        bytes = EspImageHeader.applyFlashParams(
+          bytes,
+          mode: appHeader.flashMode,
+          sizeBytes: appHeader.flashSizeBytes,
+          freq: appHeader.flashFreq,
+        );
+      }
+      return FlashPart(
+        label: label,
+        offset: defaultOffsetFor(e.key, chip),
+        bytes: bytes,
+        fileName: e.key,
+      );
+    }).toList()
       ..sort((a, b) => a.offset.compareTo(b.offset));
 
     final app = parts.firstWhere(

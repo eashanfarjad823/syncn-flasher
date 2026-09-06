@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import 'protocol.dart';
 
 /// Decoded header of an ESP application/bootloader image (`.bin`).
@@ -65,6 +67,63 @@ class EspImageHeader {
       chipId: chipId,
       chip: EspChip.fromImageChipId(chipId),
     );
+  }
+
+  /// Rewrites the flash mode, size and frequency bytes of an image header.
+  ///
+  /// esptool does this to every bootloader it writes, using its
+  /// --flash_mode/--flash_size/--flash_freq arguments; Arduino and PlatformIO
+  /// always pass them, so a bootloader built with one setting is silently
+  /// corrected at flash time.
+  ///
+  /// Writing the bytes verbatim instead leaves whatever the build produced --
+  /// commonly QIO/40MHz/1MB -- and on a board wired for DIO the ROM then
+  /// cannot read flash correctly. The symptom is a watchdog reset loop
+  /// (`rst:0x7 TG0WDT_SYS_RST`) that repeats before the second-stage
+  /// bootloader ever runs.
+  static Uint8List applyFlashParams(
+    Uint8List image, {
+    String? mode,
+    int? sizeBytes,
+    String? freq,
+  }) {
+    if (image.length < 24 || image[0] != magic) return image;
+
+    final out = Uint8List.fromList(image);
+
+    final modeCode = _flashModes.indexOf((mode ?? '').toLowerCase());
+    if (modeCode >= 0) out[2] = modeCode;
+
+    var sizeNibble = (out[3] >> 4) & 0xF;
+    var freqNibble = out[3] & 0xF;
+
+    if (sizeBytes != null) {
+      for (final e in _flashSizes.entries) {
+        if (e.value == sizeBytes) {
+          sizeNibble = e.key;
+          break;
+        }
+      }
+    }
+    if (freq != null) {
+      final wanted = freq.toUpperCase().replaceAll(' ', '');
+      for (final e in _flashFreqs.entries) {
+        if (e.value.toUpperCase().replaceAll(' ', '') == wanted) {
+          freqNibble = e.key;
+          break;
+        }
+      }
+    }
+    out[3] = ((sizeNibble & 0xF) << 4) | (freqNibble & 0xF);
+
+    // Byte 23 flags a SHA-256 appended over everything preceding it. Patching
+    // the header invalidates that digest, so recompute it.
+    if (out[23] == 1 && out.length > 32) {
+      final digest = sha256.convert(out.sublist(0, out.length - 32)).bytes;
+      out.setRange(out.length - 32, out.length, digest);
+    }
+
+    return out;
   }
 
   String get flashSizeLabel => flashSizeBytes >= (1 << 20)
