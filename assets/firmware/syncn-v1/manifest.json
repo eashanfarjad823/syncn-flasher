@@ -1,7 +1,8 @@
 {
   "id": "syncn-v1",
-  "name": "SyncN Firmware (test build)",
-  "version": "1.0.0-test",
+  "name": "SyncN Local-Hub Firmware",
+  "version": "3.1",
+  "versionNote": "Taken from the FW_VERSION constant the firmware itself reports over BLE STATUS. Its startup banner still prints 'Firmware 3.0' from a separate hardcoded literal; 3.1 is the value OTA compares against.",
   "chip": "esp32s3",
   "flashSize": 8388608,
   "flashMode": "dio",

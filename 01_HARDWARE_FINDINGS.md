@@ -128,7 +128,39 @@ Verified working end-to-end against this board: USB enumeration, download-mode
 entry, the SYNC handshake, chip identification from the magic register, and the
 eFuse MAC read.
 
-## 7. Still open ⚠️
+## 7. Two firmware version constants disagree ⚠️
+
+The image carries the version in two places, and they do not match:
+
+| Offset | String | Where it comes from |
+|---|---|---|
+| `21322` | `3.1` | A standalone constant, sitting beside the `[CFG]` OTA strings (`oldOTA='%s' latestOTA='%s' url='%s' type='%s'`) |
+| `29995` | `3.0` | Baked into the literal `=== SyncN Local-Hub FreeRTOS Firmware 3.0 ===` |
+
+**`3.1` is the real version.** It is what the OTA logic compares against
+(`[OTA] Pending update: running='%s' -> target='%s'`) and what `STATUS`
+formats through `FW: %s` — confirmed on hardware, where the board answered
+`FW: 3.1`. The banner keeps its own hardcoded copy, which was left behind when
+the version was bumped.
+
+Cosmetic in effect, but actively misleading: reading the banner is what first
+led us to record this firmware as 3.0.
+
+**Fix in the firmware source** — remove the duplicate rather than editing it:
+
+```cpp
+// The banner holds its own copy of the version, which is how it drifted:
+Serial.println("=== SyncN Local-Hub FreeRTOS Firmware 3.0 ===");
+
+// Print the same constant OTA and STATUS already use:
+Serial.printf("=== SyncN Local-Hub FreeRTOS Firmware %s ===\n", FW_VERSION);
+```
+
+This repo cannot make that change — it holds the compiled `.bin`, not the
+source. What it *can* do is stop repeating a wrong number, so
+`assets/firmware/syncn-v1/manifest.json` now declares `3.1`.
+
+## 8. Still open ⚠️
 
 - **Auto-reset wiring.** Not yet established whether this board populates the
   DTR/RTS reset transistors, since the native-USB path can reset it regardless.
@@ -137,5 +169,9 @@ eFuse MAC read.
 - **Actual flash chip size.** Read from the image header, not interrogated from
   the SPI flash itself. Reading the real JEDEC id needs register-level SPI
   access that is not yet implemented.
-- **A full write has not been performed yet.** Connect and identify are proven
-  on hardware; `FLASH_BEGIN`/`FLASH_DATA`/MD5-verify are not.
+- **Hardcoded production secrets.** The image contains a real HiveMQ Cloud
+  broker hostname and a plaintext broker password, the default `device_token`,
+  16 default widget IDs, and the `admin` / `SyncN@112` portal credentials. NVS
+  can override all of them, but a board that has never been provisioned ships
+  with the lot — and a full chip erase returns it to exactly that state, which
+  was confirmed on hardware.
