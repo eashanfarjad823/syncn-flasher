@@ -34,6 +34,56 @@ C library.
 
 ---
 
+## ⚠️ Security: the bundled firmware carries production credentials
+
+`assets/firmware/syncn-v1/firmware.bin` is compiled with real, working
+credentials inside it. They come out with `grep` in seconds — no reverse
+engineering, no tooling, no skill required.
+
+| What | Detail |
+|---|---|
+| HiveMQ Cloud broker host | `b65e11ec…s1.eu.hivemq.cloud` |
+| **Broker password** | 20 characters, sitting directly beside the host string |
+| MQTT client id | `SyncN_MQTT_IOT` |
+| Topic root | `syncn/bootstrap` |
+| Default `device_token` | 32 characters |
+| Default widget IDs | 16 × 24-hex-character values |
+| Portal login | `admin` plus a default password, also in the image |
+
+**The APK embeds that binary, and an APK is a zip.** Anyone handed the app — any
+technician, any phone, anyone the file is forwarded to — can extract the
+production broker password. Keeping this repository private does not change
+that. Bundling the firmware is what exposes it.
+
+A full chip erase makes this *worse*, not better: NVS falls back to the
+compiled-in defaults, so a freshly wiped board rejoins the broker with the same
+identity as every other unprovisioned unit. That is not theoretical — it was
+confirmed on hardware here. After erasing the chip, the same `device_token` and
+the same 16 widget IDs came straight back.
+
+### What fixing it takes
+
+None of this is fixable in this repository, which holds the compiled `.bin` and
+not the source that produced it. In priority order:
+
+1. **Rotate the HiveMQ credentials.** Everything else is secondary — until the
+   exposed password is dead, it is a live credential on a production broker.
+2. **Move the broker password out of `config.h`** so it is provisioned per
+   device rather than compiled into every unit.
+3. **Force a portal password change at provisioning.** The firmware already
+   validates the field (`[PROVISION] Rejected empty web password`), so it is
+   settable — it simply defaults to a value shared by every board.
+4. **Issue each board its own `device_token`** instead of falling back to a
+   shared default.
+
+Until at least step 1 is done, treat the APK itself as a secret: do not publish
+it, do not attach it to support tickets, and do not make this repository public.
+
+See [`01_HARDWARE_FINDINGS.md`](01_HARDWARE_FINDINGS.md) for how these were
+located in the image.
+
+---
+
 ## Requirements
 
 | | |

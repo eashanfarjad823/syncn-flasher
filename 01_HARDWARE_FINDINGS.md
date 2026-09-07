@@ -174,9 +174,26 @@ source. What it *can* do is stop repeating a wrong number, so
 - **Actual flash chip size.** Read from the image header, not interrogated from
   the SPI flash itself. Reading the real JEDEC id needs register-level SPI
   access that is not yet implemented.
-- **Hardcoded production secrets.** The image contains a real HiveMQ Cloud
-  broker hostname and a plaintext broker password, the default `device_token`,
-  16 default widget IDs, and the `admin` / `SyncN@112` portal credentials. NVS
-  can override all of them, but a board that has never been provisioned ships
-  with the lot — and a full chip erase returns it to exactly that state, which
-  was confirmed on hardware.
+- **Hardcoded production secrets — see the security section of the README.**
+  Recovered from the image at a single contiguous block of `.rodata`: a real
+  HiveMQ Cloud broker hostname (`b65e11ec…s1.eu.hivemq.cloud`), a 20-character
+  broker password immediately beside it, the client id `SyncN_MQTT_IOT`, the
+  topic root `syncn/bootstrap`, a 32-character default `device_token`, 16
+  default widget IDs, and the `admin` / `SyncN@112` portal login.
+
+  How they were found, so the same check can be repeated on a future build:
+
+  ```bash
+  # locate the broker host, then read the strings packed around it
+  grep -abo "hivemq.cloud" firmware.bin
+  dd if=firmware.bin bs=1 skip=$((OFFSET-260)) count=520 | tr -c '[ -~]' '\n'
+  ```
+
+  NVS overrides all of them, but a board that has never been provisioned ships
+  with the lot — and a full chip erase returns it to exactly that state.
+  Confirmed on hardware: after wiping the chip, the same `device_token` and the
+  same 16 widget IDs reappeared and the board rejoined the broker.
+
+  Note this was missed on the first pass because the TLD regex used to hunt for
+  hostnames covered `com|net|io|org|local|dev` and not `.cloud`. Widen the
+  pattern when re-checking.
