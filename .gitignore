@@ -51,3 +51,6 @@ app.*.map.json
 **/build/
 .gradle/
 android/local.properties
+
+# Kotlin incremental build metadata
+android/.kotlin/
