@@ -54,6 +54,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -112,3 +113,15 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Launcher icon generation: `dart run flutter_launcher_icons`
+#
+# Uses the N-mark rather than the wordmark — the SyncN design system reserves
+# the mark for icon-sized contexts, and a wordmark is illegible at 48dp. The
+# mark is near-white, so it sits on Absolute Zero, the primary brand colour.
+flutter_launcher_icons:
+  android: "ic_launcher"
+  image_path: "assets/brand/syncn-mark.png"
+  adaptive_icon_background: "#004BC0"
+  adaptive_icon_foreground: "assets/brand/syncn-mark.png"
+  min_sdk_android: 26
