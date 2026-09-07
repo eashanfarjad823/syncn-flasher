@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:permission_handler/permission_handler.dart' show openAppSettings;
+
 import '../ble/ble_provisioning.dart';
 import '../prefs.dart';
 import 'theme.dart';
@@ -34,6 +36,7 @@ class _BleSetupScreenState extends State<BleSetupScreen> {
   String? _message;
   String? _advice;
   bool _obscure = true;
+  bool _needsSettings = false;
   List<String> _knownSsids = [];
   final _transcript = <String>[];
   StreamSubscription<String>? _respSub;
@@ -82,10 +85,12 @@ class _BleSetupScreenState extends State<BleSetupScreen> {
     // older impose on scanning.
     final blocked = await _ble.checkAvailability();
     if (blocked != null) {
+      if (mounted) setState(() => _needsSettings = blocked.openSettings);
       _set(BleStage.unavailable,
           message: blocked.message, advice: blocked.advice);
       return;
     }
+    if (mounted) setState(() => _needsSettings = false);
 
     await _scan();
   }
@@ -263,10 +268,22 @@ class _BleSetupScreenState extends State<BleSetupScreen> {
             ],
 
             if (_stage == BleStage.unavailable || _stage == BleStage.notFound)
-              FilledButton.icon(
-                onPressed: busy ? null : _begin,
-                icon: const Icon(Icons.bluetooth_searching_rounded),
-                label: const Text('Check again'),
+              Column(
+                children: [
+                  FilledButton.icon(
+                    onPressed: busy ? null : _begin,
+                    icon: const Icon(Icons.bluetooth_searching_rounded),
+                    label: const Text('Check again'),
+                  ),
+                  if (_needsSettings) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: openAppSettings,
+                      icon: const Icon(Icons.settings_rounded),
+                      label: const Text('Open app settings'),
+                    ),
+                  ],
+                ],
               ),
 
             // Picker: shown when the MAC match did not give exactly one board.

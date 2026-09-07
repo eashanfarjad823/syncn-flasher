@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Where the BLE commissioning flow currently is.
 enum BleStage {
@@ -37,9 +38,14 @@ class BleCandidate {
 
 /// Why BLE cannot be used right now, phrased for a technician.
 class BleUnavailable {
-  const BleUnavailable(this.message, this.advice);
+  const BleUnavailable(this.message, this.advice, {this.openSettings = false});
   final String message;
   final String advice;
+
+  /// True when the only way forward is Android's app-settings screen, because
+  /// the user has permanently denied a permission and Android will no longer
+  /// show a prompt.
+  final bool openSettings;
 }
 
 /// Speaks the SyncN controller's custom BLE provisioning protocol.
@@ -83,9 +89,48 @@ class BleProvisioningService {
   String? get connectedName => _connectedName;
   bool get isConnected => _char != null;
 
-  /// Translates the radio's state into something worth showing a technician,
-  /// or null when BLE is ready to use.
+  /// Asks Android for the Bluetooth permissions, then reports the radio state.
+  ///
+  /// Requesting is not optional: on Android 12+ BLUETOOTH_SCAN and
+  /// BLUETOOTH_CONNECT are runtime permissions and the BLE stack simply
+  /// reports 'unauthorized' until the app prompts for them. Nothing else does
+  /// this on our behalf.
   Future<BleUnavailable?> checkAvailability() async {
+    final results = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+    ].request();
+
+    final denied = results.entries.where((e) => !e.value.isGranted).toList();
+    if (denied.isNotEmpty) {
+      final permanent = denied.any((e) => e.value.isPermanentlyDenied);
+      return BleUnavailable(
+        'Bluetooth permission was not granted.',
+        permanent
+            ? 'Android will not ask again. Open app settings and allow '
+                '"Nearby devices", then come back.'
+            : 'Wi-Fi setup needs the "Nearby devices" permission to find the '
+                'board. Tap Check again to be asked once more.',
+        openSettings: permanent,
+      );
+    }
+
+    // The platform side works out its permission situation when it first
+    // initialises and then caches it, so a permission the user granted seconds
+    // ago still reads as 'unauthorized'. Re-initialise to force a fresh look
+    // rather than making the technician restart the app.
+    if (_ble.status == BleStatus.unauthorized) {
+      try {
+        await _ble.deinitialize();
+        await _ble.initialize();
+        await _ble.statusStream
+            .firstWhere((s) => s != BleStatus.unauthorized)
+            .timeout(const Duration(seconds: 4), onTimeout: () => _ble.status);
+      } catch (_) {
+        // Fall through and report whatever the status ends up being.
+      }
+    }
+
     var status = _ble.status;
     if (status == BleStatus.unknown) {
       // The first reading is often 'unknown' before the platform reports in.
