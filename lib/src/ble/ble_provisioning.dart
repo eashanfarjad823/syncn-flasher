@@ -319,7 +319,7 @@ class BleProvisioningService {
   /// Sends one command and waits for the board's reply.
   Future<String> _send(
     String command, {
-    Duration timeout = const Duration(seconds: 12),
+    Duration timeout = const Duration(seconds: 8),
   }) async {
     final c = _char;
     if (c == null) throw StateError('Not connected to a board.');
@@ -328,19 +328,37 @@ class BleProvisioningService {
         _responses.stream.first.timeout(timeout, onTimeout: () => '');
 
     final bytes = utf8.encode(command);
+
+    // Every BLE call gets its own deadline. The board drops the link the moment
+    // it accepts credentials, and a write whose completion callback never
+    // arrives would otherwise leave the UI waiting forever on a command the
+    // board has already acted on.
     try {
-      await _ble.writeCharacteristicWithResponse(c, value: bytes);
+      await _ble
+          .writeCharacteristicWithResponse(c, value: bytes)
+          .timeout(const Duration(seconds: 6));
     } catch (_) {
-      await _ble.writeCharacteristicWithoutResponse(c, value: bytes);
+      try {
+        await _ble
+            .writeCharacteristicWithoutResponse(c, value: bytes)
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {
+        // Both write paths failed or stalled. The peer hanging up mid-write is
+        // the normal outcome for SET, so leave the verdict to the caller
+        // rather than declaring failure here.
+      }
     }
 
     var reply = await replyFuture;
 
-    // No notification arrived: poll the characteristic instead.
-    if (reply.isEmpty) {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+    // No notification arrived: poll the characteristic instead — but only
+    // while the link is actually up, and never without a deadline.
+    if (reply.isEmpty && !_peerDisconnected) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
       try {
-        reply = _decode(await _ble.readCharacteristic(c)).trim();
+        reply = _decode(
+          await _ble.readCharacteristic(c).timeout(const Duration(seconds: 4)),
+        ).trim();
       } catch (_) {
         reply = '';
       }
@@ -378,6 +396,11 @@ class BleProvisioningService {
     try {
       return await _send('SET,$ssid,$password');
     } catch (e) {
+      // The disconnect that signals success often lands a moment AFTER the
+      // write gives up, so wait briefly for it before calling this a failure.
+      for (var i = 0; i < 6 && !_peerDisconnected; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
       if (_peerDisconnected) {
         return 'OK: Credentials sent. The board left setup mode to join Wi-Fi.';
       }
