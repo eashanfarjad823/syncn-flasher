@@ -81,6 +81,9 @@ class BleProvisioningService {
   QualifiedCharacteristic? _char;
   String? _connectedName;
 
+  /// Set when the board itself closes the GATT link.
+  bool _peerDisconnected = false;
+
   final _responses = StreamController<String>.broadcast();
 
   /// Every reply received, for the UI transcript.
@@ -263,6 +266,9 @@ class BleProvisioningService {
                 StateError('The board disconnected before setup could start.'),
               );
             }
+            // Recorded so a command that fails *because* the peer hung up can
+            // be told apart from one that genuinely went unanswered.
+            _peerDisconnected = true;
             _char = null;
           case DeviceConnectionState.connecting:
           case DeviceConnectionState.disconnecting:
@@ -361,8 +367,23 @@ class BleProvisioningService {
     return null;
   }
 
-  Future<String> sendWifi(String ssid, String password) =>
-      _send('SET,$ssid,$password');
+  /// Sends Wi-Fi credentials.
+  ///
+  /// The firmware leaves provisioning mode the instant it accepts them, so it
+  /// commonly drops the GATT link before — or instead of — replying. That
+  /// disconnect is the success path, not a failure, and is reported as such;
+  /// the console shows whether the board then joins the network.
+  Future<String> sendWifi(String ssid, String password) async {
+    _peerDisconnected = false;
+    try {
+      return await _send('SET,$ssid,$password');
+    } catch (e) {
+      if (_peerDisconnected) {
+        return 'OK: Credentials sent. The board left setup mode to join Wi-Fi.';
+      }
+      rethrow;
+    }
+  }
 
   Future<String> requestStatus() => _send('STATUS');
 

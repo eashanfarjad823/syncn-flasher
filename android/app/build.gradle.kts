@@ -47,3 +47,10 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // RxJava is already present transitively via reactive_ble_mobile, but it is
+    // referenced directly by MainActivity to install a global error handler, so
+    // it must be on this module's own compile classpath.
+    implementation("io.reactivex.rxjava2:rxjava:2.2.21")
+}
