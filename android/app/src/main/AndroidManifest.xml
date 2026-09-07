@@ -11,10 +11,32 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      BLE Wi-Fi commissioning (Android 12+ model).
+
+      neverForLocation tells Android we do not derive physical location from BLE
+      results, which means the technician is never asked for location access just
+      to set up a board. BLE is optional: a phone without it can still flash,
+      monitor and open the config portal.
+    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!--
+      Required by the in-app WebView that shows the device's config portal.
+      Android needs INTERNET for any network access from this process, including
+      a plain LAN address. The app itself contacts nothing on the internet.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="SyncN Flasher"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

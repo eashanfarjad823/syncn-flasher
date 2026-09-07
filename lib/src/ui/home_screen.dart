@@ -7,7 +7,7 @@ import '../esp/protocol.dart';
 import '../esp/transport.dart';
 import '../flash/firmware.dart';
 import '../flash/flash_service.dart';
-import 'serial_monitor.dart';
+import 'device_screen.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -311,6 +311,36 @@ class _HomeScreenState extends State<HomeScreen> {
       _report = report;
       _view = _View.report;
     });
+
+    // Open the live console straight away, on failure as well as success: a
+    // board that refused the flash is exactly when its own output matters
+    // most. The report stays behind this screen.
+    await _openConsole(macAddress: report.macAddress);
+  }
+
+  /// Releases the flashing port and opens the live console for the board.
+  ///
+  /// The MAC is captured before disconnecting, because it is read during the
+  /// flash session and is what lets BLE pick this board out of the air later.
+  Future<void> _openConsole({String? macAddress}) async {
+    final device = _selected;
+    if (device == null) return;
+
+    final mac = macAddress ?? _service.macAddress;
+    await _service.disconnect();
+    if (!mounted) return;
+    setState(() {});
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => DeviceScreen(
+          device: device,
+          macAddress: mac,
+          title: 'Device console',
+        ),
+      ),
+    );
   }
 
   /// The confirmation gate. Nothing is written until this returns options.
@@ -683,17 +713,7 @@ class _HomeScreenState extends State<HomeScreen> {
         OutlinedButton.icon(
           onPressed: _selected == null
               ? null
-              : () async {
-                  await _service.disconnect();
-                  if (!mounted) return;
-                  setState(() {});
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => SerialMonitorScreen(device: _selected!),
-                    ),
-                  );
-                },
+              : () => _openConsole(),
           icon: const Icon(Icons.terminal_rounded),
           label: const Text('Serial monitor'),
         ),
@@ -919,18 +939,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 20),
         if (r.success)
           FilledButton.icon(
-            onPressed: () async {
-              final device = _selected;
-              await _service.disconnect();
-              if (!mounted || device == null) return;
-              setState(() => _view = _View.setup);
-              await Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => SerialMonitorScreen(device: device),
-                ),
-              );
-            },
+            onPressed: () => _openConsole(macAddress: r.macAddress),
             icon: const Icon(Icons.terminal_rounded),
             label: const Text('Open serial monitor'),
           )

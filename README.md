@@ -24,7 +24,11 @@ C library.
   then 115200 if the link proves unreliable, rather than failing outright.
 - **Escalates into download mode** — classic DTR/RTS auto-reset, then the
   native-USB sequence, then guided manual BOOT/RST instructions.
-- **Serial monitor** with an explicit baud choice, autoscroll, copy and share.
+- **Opens a live console automatically after flashing**, at 921600 with an
+  automatic fall back to 115200, reconnecting by itself when the board resets.
+- **Commissions Wi-Fi over Bluetooth**, speaking the firmware’s own
+  `SET` / `STATUS` / `RESET` protocol, then watches the log for the device IP.
+- **Opens the device’s config portal** in-app the moment that IP appears.
 - **Shareable reports** — chip, MAC, regions written, checksums, timings, and a
   full protocol trace for diagnosing a board that will not take firmware.
 
@@ -89,8 +93,8 @@ adb tcpip 5555
 4. Confirm the firmware under **Firmware** (built-in by default).
 5. Tap **Flash firmware**, review the confirmation sheet, choose the erase
    mode, then **Flash now**.
-6. When it finishes, open the **serial monitor** and pick your firmware's log
-   speed to confirm the board booted.
+6. The **device console** opens by itself and shows the board booting. Carry on
+   below.
 
 ### Erase modes
 
@@ -100,6 +104,39 @@ adb tcpip 5555
 | Erase the whole chip | Blanks all 8 MB. The board needs re-provisioning afterwards. |
 
 ---
+
+## After flashing: console, Wi-Fi, portal
+
+A successful *or* failed flash drops straight into the **device console** — the
+serial log stays live while the rest of the commissioning happens, because the
+board announces its own IP in that log.
+
+```
+Flash → console opens → Wi-Fi setup over BLE → board joins → IP appears → portal
+```
+
+**Console.** Opens at 921600 and, if the output is not readable, switches to
+115200 by itself and says so. (This firmware logs at 115200; 921600 is the
+*flashing* speed, which is a different setting entirely.) The working rate is
+remembered for next time. If the board resets and re-enumerates, the console
+reconnects and marks it inline — a board reconnecting over and over is
+boot-looping, and that should be visible at a glance.
+
+**Wi-Fi setup over BLE.** Connects to the board just flashed by matching its
+MAC, falling back to a picker when that match does not land. It speaks the
+firmware's own protocol — `SET,<SSID>,<PASSWORD>`, `STATUS`, `RESET` — over a
+single custom GATT characteristic. Network names you have used before are
+remembered; passwords never are. Requires **Android 12 or newer**: older
+versions demand Location permission just to scan, which this app does not ask
+for. Flashing, the console and the portal all still work on older phones.
+
+**Open portal.** Enabled the moment an IP appears in the log, then shows the
+device's own config page in an embedded browser. The page prompts for its own
+credentials — the app stores none, because the shipped defaults are already
+recoverable from the firmware image.
+
+> Neither SSID nor password may contain a comma: the board's BLE protocol
+> separates fields with commas, so the app blocks it before sending.
 
 ## Firmware layout
 
@@ -140,15 +177,24 @@ lib/
     flash/
       firmware.dart             bundled assets and the file picker
       flash_service.dart        orchestration, progress, verification, reports
+    serial/
+      log_session.dart          live console: baud fallback, reconnect, IP parsing
+    ble/
+      ble_provisioning.dart     SET / STATUS / RESET over the custom GATT service
+    prefs.dart                  remembered SSIDs, last IP per board, working baud
     ui/
       theme.dart                SyncN design tokens, light + dark
       widgets.dart              shared components
       home_screen.dart          connect, confirm, flash, report
-      serial_monitor.dart       serial console
+      device_screen.dart        post-flash console + Wi-Fi / portal actions
+      ble_setup_screen.dart     BLE commissioning
+      web_portal_screen.dart    the device's config page, in-app
 ```
 
 The flashing engine has no Flutter dependency beyond `usb_serial`, so it can be
-reused or ported without dragging the UI along.
+reused or ported without dragging the UI along. BLE uses
+`flutter_reactive_ble` (BSD) rather than `flutter_blue_plus`, whose 2.x
+releases require a **paid licence for commercial use**.
 
 ---
 
@@ -162,11 +208,13 @@ reused or ported without dragging the UI along.
   would also raise the write block size from 1 KB to 16 KB.
 - **No foreground service yet.** A wakelock keeps the screen on during a flash;
   leaving the app mid-write will still interrupt it.
-- **USB-C only, by design.** There is no Wi-Fi or over-the-air update path. The
-  app manifest requests no network permission, so a release build has no
-  network access whatsoever and works entirely offline. (Debug and profile
-  builds do carry `INTERNET` — Flutter's own variant manifests add it for hot
-  reload and DevTools, not for anything this app does.)
+- **No over-the-air firmware update.** Flashing is USB-C only and the app never
+  downloads firmware from anywhere. It holds `INTERNET` for exactly one purpose:
+  rendering the device's own config portal in an embedded WebView, which Android
+  requires even for a LAN address. Nothing in the app contacts the internet.
+- **BLE setup needs Android 12+.** Earlier versions require Location permission
+  merely to scan for Bluetooth devices, which this app deliberately does not
+  request. Flashing, the console and the portal work on Android 8 upwards.
 - **Flash size is read from the image header**, not interrogated from the SPI
   flash chip.
 - **Android only.** iOS cannot reach USB-serial devices without MFi
