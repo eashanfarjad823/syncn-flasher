@@ -98,25 +98,101 @@ class FirmwareBundle {
     return const [];
   }
 
-  /// Reports offsets that would land inside a partition holding device state
-  /// (Wi-Fi credentials, filesystems). Used to warn before an unusual write.
-  List<String> userStateCollisions() {
+  /// Warns that a filesystem image replaces stored device data.
+  ///
+  /// Unlike the app or bootloader, a filesystem partition holds whatever the
+  /// board itself wrote there — web assets, logs, calibration. Overwriting it
+  /// is a deliberate act and should never be silent.
+  List<String> filesystemWarnings() {
+    final table = partitionTable;
+    final out = <String>[];
+
+    for (final part in parts) {
+      if (part.label != 'filesystem') continue;
+
+      EspPartition? region;
+      for (final r in table) {
+        if (r.offset == part.offset) {
+          region = r;
+          break;
+        }
+      }
+
+      out.add(region != null
+          ? 'Replaces the "${region.label}" filesystem (${region.sizeLabel}). '
+              'Anything the board stored there is lost.'
+          : 'Replaces the filesystem at ${part.offsetLabel}. Anything the '
+              'board stored there is lost.');
+    }
+    return out;
+  }
+
+  /// Reports images that do not fit the partition they are aimed at.
+  ///
+  /// Writing past the end of a partition corrupts whatever follows it — on
+  /// this layout a filesystem image that is too large runs straight into the
+  /// coredump region.
+  List<String> fitWarnings() {
     final table = partitionTable;
     if (table.isEmpty) return const [];
 
-    final warnings = <String>[];
+    final out = <String>[];
     for (final part in parts) {
       for (final region in table) {
-        if (!region.isUserState) continue;
-        final overlaps = part.offset < region.offset + region.size &&
-            region.offset < part.offset + part.size;
-        if (overlaps) {
-          warnings.add('${part.fileName} overwrites "${region.label}" '
-              '(${region.typeLabel})');
+        final startsInside = part.offset >= region.offset &&
+            part.offset < region.offset + region.size;
+        if (!startsInside) continue;
+
+        final overshoot =
+            (part.offset + part.size) - (region.offset + region.size);
+        if (overshoot > 0) {
+          out.add('${part.fileName} is ${part.sizeLabel}, which is '
+              '${(overshoot / 1024).toStringAsFixed(0)} KB too big for '
+              '"${region.label}" (${region.sizeLabel}).');
         }
+        break;
       }
     }
-    return warnings;
+    return out;
+  }
+
+  /// Re-points a filesystem image at the offset the supplied partition table
+  /// actually declares.
+  ///
+  /// [defaultOffsetFor] can only guess from the file name; when the flash set
+  /// includes a partition table, that table is authoritative and a board with
+  /// a different layout is handled correctly instead of being written blind.
+  static List<FlashPart> _alignToPartitionTable(List<FlashPart> parts) {
+    var table = const <EspPartition>[];
+    for (final p in parts) {
+      if (p.partitions.isNotEmpty) {
+        table = p.partitions;
+        break;
+      }
+    }
+    if (table.isEmpty) return parts;
+
+    // SPIFFS (0x82) or FAT (0x81) — whichever this build actually declares.
+    EspPartition? fs;
+    for (final r in table) {
+      if (r.isData && (r.subtype == 0x82 || r.subtype == 0x81)) {
+        fs = r;
+        break;
+      }
+    }
+    if (fs == null) return parts;
+
+    return parts
+        .map((p) => (p.label == 'filesystem' && p.offset != fs!.offset)
+            ? FlashPart(
+                label: p.label,
+                offset: fs.offset,
+                bytes: p.bytes,
+                fileName: p.fileName,
+              )
+            : p)
+        .toList()
+      ..sort((a, b) => a.offset.compareTo(b.offset));
   }
 
   /// Standard Arduino/IDF offsets, chosen from the chip family because the
@@ -174,13 +250,14 @@ class FirmwareBundle {
       ));
     }
     parts.sort((a, b) => a.offset.compareTo(b.offset));
+    final aligned = _alignToPartitionTable(parts);
 
     final chipName = (manifest['chip'] as String?)?.toLowerCase();
     return FirmwareBundle(
       id: manifest['id'] as String? ?? id,
       name: manifest['name'] as String? ?? id,
       version: manifest['version'] as String? ?? '',
-      parts: parts,
+      parts: aligned,
       declaredChip: EspChip.all.cast<EspChip?>().firstWhere(
             (c) => c!.name.toLowerCase().replaceAll('-', '') == chipName,
             orElse: () => null,
@@ -245,16 +322,19 @@ class FirmwareBundle {
     }).toList()
       ..sort((a, b) => a.offset.compareTo(b.offset));
 
-    final app = parts.firstWhere(
+    // A supplied partition table outranks the filename guess.
+    final aligned = _alignToPartitionTable(parts);
+
+    final app = aligned.firstWhere(
       (p) => p.label == 'application',
-      orElse: () => parts.first,
+      orElse: () => aligned.first,
     );
 
     return FirmwareBundle(
       id: 'picked',
-      name: parts.length == 1 ? app.fileName : 'Selected files',
+      name: aligned.length == 1 ? app.fileName : 'Selected files',
       version: app.appDescriptor?.version ?? '',
-      parts: parts,
+      parts: aligned,
       declaredChip: chip,
       flashSize: app.header?.flashSizeBytes ?? 0,
       flashMode: app.header?.flashMode ?? '',

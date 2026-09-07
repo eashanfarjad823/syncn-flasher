@@ -150,10 +150,35 @@ for how these were verified from the binaries themselves:
 | 3 | `boot_app0.bin` | `0xE000` |
 | 4 | `firmware.bin` | `0x10000` |
 
-`spiffs` at `0x610000` is deliberately left untouched.
-
 > The bootloader sits at `0x0` because this is an **ESP32-S3**. On a classic
 > ESP32 it belongs at `0x1000`. The app derives this from the detected chip.
+
+### Flashing the filesystem
+
+A fifth file is optional. Name it with `spiffs` or `littlefs` in it and the app
+routes it to the filesystem partition — `0x610000` on this layout:
+
+| File | Offset |
+|---|---|
+| `spiffs.bin` / `littlefs.bin` | filesystem partition |
+
+The offset is **not** hardcoded. When the flash set includes `partitions.bin`,
+the app reads the real offset out of that table, so a board with a different
+layout is written correctly rather than blind. The filename only supplies the
+guess used when no table is present.
+
+Two guards apply, both derived from the partition table:
+
+- **Too large is blocked.** An image that would run past the end of its
+  partition is refused outright, because writing past it corrupts whatever
+  follows — here, the coredump region.
+- **Replacement is flagged.** A filesystem holds data the *board* wrote — web
+  assets, logs, calibration. The confirm screen says plainly that flashing it
+  destroys that, since unlike the app image it is not something the build can
+  simply recreate.
+
+Leave the file out and the filesystem is untouched, which is what a routine
+firmware update wants.
 
 ### Replacing the built-in firmware
 

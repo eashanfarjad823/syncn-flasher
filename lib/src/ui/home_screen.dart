@@ -351,6 +351,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final mismatch =
         chip != null && imageChip != null && chip.name != imageChip.name;
 
+    // An image that overruns its partition corrupts whatever follows it, so
+    // it blocks the flash the same way a wrong chip does. Replacing a
+    // filesystem is legitimate but destructive, so it only warns.
+    final fitProblems = bundle.fitWarnings();
+    final fsWarnings = bundle.filesystemWarnings();
+    final blocked = mismatch || fitProblems.isNotEmpty;
+
     var erase = EraseMode.writtenRegions;
     var backup = false;
 
@@ -395,6 +402,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       advice:
                           'Writing it will leave the board unable to boot. '
                           'Flashing is blocked.',
+                    ),
+                  ),
+
+                for (final problem in fitProblems)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: AdviceBanner(
+                      tone: AdviceTone.danger,
+                      message: 'This image does not fit its partition.',
+                      advice: '$problem Writing it would run past the end of '
+                          'the partition and corrupt what follows.',
+                    ),
+                  ),
+
+                for (final warning in fsWarnings)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: AdviceBanner(
+                      tone: AdviceTone.warning,
+                      message: 'The filesystem will be replaced.',
+                      advice: warning,
                     ),
                   ),
 
@@ -490,7 +518,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
-                        onPressed: mismatch
+                        onPressed: blocked
                             ? null
                             : () => Navigator.pop(
                                   ctx,

@@ -99,8 +99,13 @@ there is comfortable headroom.
 `boot_app0.bin` is an otadata initialiser — its first word is `0x00000001`,
 which points the bootloader at the first OTA slot.
 
-**`spiffs` at `0x610000` is not written** by these four files. The flasher
-leaves it untouched, so any filesystem contents survive an update.
+**`spiffs` at `0x610000` is not written** by these four files, so any filesystem
+contents survive an ordinary update.
+
+A fifth image can be supplied to write it — see *Flashing the filesystem* in the
+README. The flasher takes the offset from this partition table when one is in
+the flash set, rather than trusting the filename, and refuses an image that
+would overrun the partition into `coredump` at `0x7F0000`.
 
 ## 6. USB path — CONFIRMED ON HARDWARE ✅
 
